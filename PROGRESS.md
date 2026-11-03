@@ -29,6 +29,7 @@
 - [x] Codex VS Code 확장 설치 및 프로젝트 폴더 인식 확인
 - [x] `AGENTS.md` 생성 및 내용 검토
 - [x] Git `main` 브랜치 및 GitHub 저장소 연결, 첫 Push 완료 (사용자 확인)
+- [x] SQLite `migrate` 성공 및 `questions_question`, `questions_choice` 테이블 조회 성공 (사용자 확인, Codex 직접 재검증 아님)
 
 Codex가 직접 수행한 작업:
 
@@ -39,17 +40,23 @@ Codex가 직접 수행한 작업:
 - [x] `manage.py` 및 `config/` 기본 파일 5개 존재 확인
 - [x] `SECRET_KEY`를 환경변수 또는 개발용 임시 키로 설정하여 하드코딩 제거
 - [x] `manage.py check` 통과
+- [x] `.venv`의 Python으로 `questions` 앱 기본 구조 생성 및 `INSTALLED_APPS` 등록
+- [x] `questions` 앱 등록 후 `manage.py check` 통과
+- [x] `Question`, `Choice` 모델 및 같은 문제 내 선택지 순서 중복 방지 `UniqueConstraint` 정의
+- [x] `questions/migrations/0001_initial.py` 생성 (DB 적용 미실행)
+- [x] 모델 작성 후 `manage.py check` 및 `makemigrations --check --dry-run` 통과
+- [x] `Question`, `Choice` 모델의 Django `TestCase` 기반 자동화 테스트 7개 작성 및 통과
 
 ## 4. 현재 작업
 
-- Django 프로젝트 기본 구조 생성 및 시스템 검사 완료. 다음 사용자 요청 대기.
+- 모델 기본 자동화 테스트 7개 및 시스템 검사 통과. 다음 사용자 요청 대기.
 
 ## 5. 다음 작업
 
 아래 항목은 예정된 작업이며, 사용자 요청에 따라 해당 단계만 진행한다.
 
-- [ ] Django 앱 생성
-- [ ] `Question`, `Choice` 모델과 문제 풀이 기능 개발
+- [ ] 문제 생성·검증 로직 구현: 선택지 정확히 4개, SINGLE 정답 1개, MULTIPLE 정답 2개 이상 보장
+- [ ] 문제 풀이 기능 개발
 
 ## 6. 테스트 및 확인 결과
 
@@ -63,6 +70,8 @@ Codex가 직접 수행한 작업:
 | 가상환경 Python 실행 경로 | 성공 | 사용자 |
 | Django 버전 5.2.18 | 성공 | 사용자 |
 | Codex 프로젝트 폴더 인식 | 성공 | 사용자 |
+| SQLite `migrate` 실행 | 성공 | 사용자 |
+| `questions_question`, `questions_choice` 테이블 조회 | 성공 | 사용자 |
 
 ### 이번 문서 작성 작업의 확인
 
@@ -101,11 +110,54 @@ Codex가 직접 수행한 작업:
 
 접속 주소: `http://127.0.0.1:8000/`. 마이그레이션을 수행하지 않았으므로 서버 실행 시 미적용 마이그레이션 경고가 표시될 수 있다.
 
+### questions 앱 생성 및 등록 작업의 확인
+
+- 확인 주체: Codex
+- 작업 전 `AGENTS.md`, `PROGRESS.md`, 기존 프로젝트 파일 및 Git 변경 상태를 확인했다. 기존 `questions` 앱은 없었고 작업 전 Git 변경 사항도 없었다.
+- 생성 명령: `.\.venv\Scripts\python.exe manage.py startapp questions` — 성공.
+- 생성 파일: `questions/__init__.py`, `admin.py`, `apps.py`, `models.py`, `tests.py`, `views.py`, `migrations/__init__.py` 총 7개 기본 파일의 존재를 확인했다.
+- `config/settings.py`의 `INSTALLED_APPS`에 `questions.apps.QuestionsConfig`를 등록했다. 설정 파일의 차이를 확인하여 기존 보안 설정을 포함한 다른 설정은 변경하지 않았음을 확인했다.
+- 검사 명령: `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- `models.py`, `views.py`, `tests.py`는 Django가 생성한 기본 상태이며 모델·뷰·테스트 구현을 추가하지 않았다. URL 및 Template도 작성하지 않았다.
+- DB 마이그레이션, 패키지 설치, Git commit/push는 수행하지 않았다. 작업 전 존재하던 `db.sqlite3`는 수정하지 않았다.
+- 변경 이유: `questions/`는 앱 기본 구조 마련, `config/settings.py`는 앱 등록, `PROGRESS.md`는 실제 작업 결과 기록을 위해 변경했다.
+- 이번 작업에서 발생한 오류 없음.
+
+### Question 및 Choice 모델 구현 작업의 확인
+
+- 확인 주체: Codex
+- 작업 전 `AGENTS.md`, `PROGRESS.md`, `questions/models.py`, `config/settings.py` 및 기존 파일 목록을 확인했다. 이전 작업의 미커밋 변경 사항은 유지했다.
+- `questions/models.py`: 문제 본문·해설·유형(SINGLE/MULTIPLE, 기본 SINGLE)·생성 시각과 선택지의 문제 참조·내용·정답 여부·순서를 정의했다. 두 모델에 본문 일부를 보여 주는 `__str__`을 추가했다.
+- 선택지 순서에는 1~4 범위의 Django validator를 추가했다. validator는 모델 검증 시 사용되며 `save()`만으로 자동 실행되거나 DB 범위 제약으로 강제되지는 않는다.
+- `(question, position)`의 `UniqueConstraint`를 정의했다. 실제 DB 제약 적용은 추후 `migrate` 실행 후 이루어진다.
+- `.\.venv\Scripts\python.exe manage.py makemigrations questions` — 성공, `questions/migrations/0001_initial.py` 생성. 두 모델 및 제약조건 포함 여부를 파일에서 확인했다.
+- `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- `.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` → `No changes detected`.
+- `git diff --check` — 통과. Git의 LF→CRLF 변환 안내가 있었으며 검사 오류는 없었다.
+- `migrate`와 DB 기반 동작 테스트는 수행하지 않았다. View, URL, Template, 관리자 기능, AI 연동 및 추가 패키지는 도입하지 않았다. Git commit/push와 AWS 리소스 작업도 수행하지 않았다.
+- 변경 파일 및 이유: `questions/models.py`는 데이터 구조 정의, `questions/migrations/0001_initial.py`는 향후 DB 적용을 위한 스키마 변경 기록, `PROGRESS.md`는 진행 상황 갱신을 위해 변경했다. 기존 보안 설정은 변경하지 않았다.
+- 이번 작업에서 발생한 오류 없음.
+
+### 모델 기본 자동화 테스트 작업의 확인
+
+- 확인 주체: Codex. 작업 전 `AGENTS.md`, `PROGRESS.md`, `questions/models.py`, 기존 `questions/tests.py` 및 Git 변경 상태를 확인했다.
+- `questions/tests.py`에 Django `TestCase` 기반 테스트 7개를 작성했다.
+- 검증 항목: 문제 본문·기본 SINGLE 유형·`__str__`, MULTIPLE 유형 저장, `question.choices.all()`을 통한 선택지 4개 조회, 같은 문제 내 순서 중복 시 `IntegrityError`, 다른 문제 간 동일 순서 허용, `full_clean()`의 순서 0·5 거부 및 1~4 허용.
+- 중복 순서 생성은 `transaction.atomic()` 내부에서 실행하고 바깥의 `assertRaises`로 `IntegrityError`를 확인했다. 롤백 후 선택지 조회가 정상 동작하는지도 검증했다.
+- `.\.venv\Scripts\python.exe manage.py test questions` → `Ran 7 tests`, `OK`. 별도 테스트 DB 생성 및 삭제를 확인했다.
+- `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- 실제 로컬 DB에 데이터를 추가하지 않았으며 `migrate` 명령을 실행하지 않았다. 테스트 러너의 테스트 DB 준비는 Django가 자동 수행했다.
+- SQLite 마이그레이션 및 두 테이블 조회 성공은 사용자 확인 결과를 기록했으며 이번 작업에서 직접 재검증하지 않았다.
+- 변경 파일 및 이유: `questions/tests.py`는 모델 동작과 제약조건 자동 검증, `PROGRESS.md`는 사용자 확인 결과와 테스트 결과 및 다음 작업 갱신을 위해 수정했다.
+- 모델과 기존 설정은 변경하지 않았다. 웹 기능, 관리자 기능, AI 연동, Git commit/push, 추가 패키지 설치는 수행하지 않았다.
+- 이번 작업에서 발생한 오류 없음.
+
 ## 7. 오류 및 참고 사항
 
 - 사용자 보고: PowerShell 실행 정책으로 `Activate.ps1` 실행이 차단됐으나 Process 범위 Bypass 적용 후 활성화에 성공했다.
 - 사용자 보고: VS Code Shell Integration 경고가 있었지만 기본 터미널 명령어 실행은 정상이었다.
-- Django 프로젝트 기본 파일 생성 완료. Django 앱과 `Question`, `Choice` 모델은 아직 생성하지 않았다.
+- Django 프로젝트 및 `questions` 앱 기본 파일, `Question`, `Choice` 모델과 초기 마이그레이션 파일 생성 완료. 사용자 확인으로 SQLite 마이그레이션 및 두 테이블 조회 성공을 기록했다. Codex는 이번 작업에서 `migrate`를 실행하지 않았다.
+- 선택지 정확히 4개, SINGLE 정답 1개, MULTIPLE 정답 2개 이상이라는 규칙은 이번 모델만으로 완벽히 강제되지 않는다. 추후 문제 생성·검증 로직에서 보장해야 한다.
 - `DJANGO_SECRET_KEY` 환경변수를 설정하지 않으면 실행마다 개발용 임시 키가 생성된다. 재시작 후 기존 세션 등이 무효화될 수 있으며, 운영 환경에서는 별도의 고정된 비밀정보를 환경변수로 제공해야 한다.
 - 기록된 기존 완료 항목과 개발 환경 확인 결과는 사용자 확인을 기반으로 한다. Codex가 직접 재검증하지 않은 사항을 직접 검증했다고 표현하지 않는다.
 
