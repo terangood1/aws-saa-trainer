@@ -46,16 +46,17 @@ Codex가 직접 수행한 작업:
 - [x] `questions/migrations/0001_initial.py` 생성 (DB 적용 미실행)
 - [x] 모델 작성 후 `manage.py check` 및 `makemigrations --check --dry-run` 통과
 - [x] `Question`, `Choice` 모델의 Django `TestCase` 기반 자동화 테스트 7개 작성 및 통과
+- [x] Step 14: Django Admin 문제·선택지 관리 및 관리자 입력 검증 구현, 전체 테스트 22개 통과
 
 ## 4. 현재 작업
 
-- 모델 기본 자동화 테스트 7개 및 시스템 검사 통과. 다음 사용자 요청 대기.
+- Step 14 문제 유형 변경 제한 완료: 유형은 최초 등록 시 선택, 기존 문제 수정 시 읽기 전용 및 임의 POST 값 무시. 전체 테스트 42개와 필수 검사 통과. 이전 0002 마이그레이션의 실제 DB 적용은 이번에도 미실행. 다음 사용자 요청 대기.
 
 ## 5. 다음 작업
 
 아래 항목은 예정된 작업이며, 사용자 요청에 따라 해당 단계만 진행한다.
 
-- [ ] 문제 생성·검증 로직 구현: 선택지 정확히 4개, SINGLE 정답 1개, MULTIPLE 정답 2개 이상 보장
+- [x] 관리자 문제 생성·검증 로직 구현: SINGLE 선택지 4개/정답 1개, MULTIPLE 선택지 5개/정답 2개 이상 보장
 - [ ] 문제 풀이 기능 개발
 
 ## 6. 테스트 및 확인 결과
@@ -152,12 +153,92 @@ Codex가 직접 수행한 작업:
 - 모델과 기존 설정은 변경하지 않았다. 웹 기능, 관리자 기능, AI 연동, Git commit/push, 추가 패키지 설치는 수행하지 않았다.
 - 이번 작업에서 발생한 오류 없음.
 
+### Step 14: Django Admin 관리자 기능 구현 (2026-11-17)
+
+- 확인 주체: Codex. 작업 전 `AGENTS.md`, `PROGRESS.md`, 모델, 관리자, 기존 테스트, 설정 및 URL을 확인했다. 작업 시작 시 Git 변경 사항은 없었다.
+- `questions/admin.py`: `QuestionAdmin` 등록, 문제 내용·유형·생성일 목록, 본문 검색, 유형 필터, 생성일 최신순 정렬 및 본문·유형·해설 편집을 구현했다.
+- `ChoiceInline`은 `TabularInline`이며 선택지 내용·순서·정답 여부를 표시한다. 추가 화면에 빈 선택지 4개를 제공하고 기존 선택지는 순서대로 표시한다. 요구사항의 `order`는 기존 모델 필드 `position`을 그대로 사용하고 화면에 '순서'로 표시했다.
+- Question/Choice ModelForm으로 기존 모델의 필드 검증을 사용한다. 순서 1~4 범위 오류는 한국어로 표시한다. Inline Formset은 빈 추가 행과 삭제 예정 행을 제외하고 선택지 정확히 4개, 순서 중복 불가, SINGLE 정답 정확히 1개, MULTIPLE 정답 2개 이상을 검사한다. 오류는 관리자 화면에 표시되며 문제와 선택지가 저장되지 않는다.
+- `questions/tests.py`: 기존 모델 테스트 7개를 유지하고 관리자 테스트 15개를 추가했다. 등록, 익명·일반 사용자·권한 없는 staff·superuser 접근, 검색, 필터와 정렬, 기본 입력 4개, 정상 SINGLE/MULTIPLE 저장, 선택지 수 부족·초과, 정답 개수, 순서 중복·범위, 수정, 유형 변경 재검증, 삭제 시 선택지 수 재검증을 확인했다.
+- `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- `.\.venv\Scripts\python.exe manage.py test` → `Ran 22 tests`, `OK`. 별도 테스트 DB를 사용했으며 테스트 계정도 테스트 DB에만 생성했다.
+- `.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` → `No changes detected`. 모델·스키마·마이그레이션 변경 없음.
+- `git diff --check` → 통과.
+- 수정 파일: `questions/admin.py`(관리자 및 검증), `questions/tests.py`(회귀·관리자 테스트), `PROGRESS.md`(진행 기록). 새 파일 없음.
+- 수동 확인은 미실행이다. 사용자가 `.\.venv\Scripts\python.exe manage.py createsuperuser`로 계정을 별도 생성하고 `.\.venv\Scripts\python.exe manage.py runserver` 실행 후 `http://127.0.0.1:8000/admin/`에 접속한다. Questions에서 문제와 순서 1~4의 선택지를 입력하고, 유형별 정답 개수 및 오류 메시지, 검색·필터·수정을 확인한다.
+- 이번 작업에서 발생한 오류 없음. 일반 사용자 화면, AI, Docker/AWS, PostgreSQL, 외부 패키지, Git commit/push는 진행하지 않았다. 실제 DB에 관리자 계정을 자동 생성하지 않았다.
+- 다음 작업은 사용자 요청 대기이며 다음 Step은 진행하지 않았다. 아래 참고 사항의 모델 검증 한계는 Admin 외부 ORM 직접 저장에는 여전히 적용된다.
+
+### Step 14 개선: 선택지 순서 고정 및 자동 할당 (2026-11-17)
+
+- 확인 주체: Codex. 작업 전 `AGENTS.md`, `PROGRESS.md`, `questions/admin.py`, 모델 및 테스트를 확인했다. 이전 Step 14의 미커밋 변경 사항을 유지했다.
+- 사용자 보고 오류: 기존 선택지의 position을 수동 변경할 때 UNIQUE constraint 관련 IntegrityError 발생. 수동 순서 입력을 제거하여 원인을 해소했다.
+- `questions/admin.py`: Choice ModelForm에서 position을 제외했다. 관리자는 선택지 내용과 정답 여부만 수정하며, 기존 순서는 읽기 전용으로 표시한다. POST로 position을 전달해도 무시한다.
+- Inline Formset은 삭제하지 않는 기존 선택지의 position을 유지하고, 사용하지 않는 1~4 순서를 오름차순으로 새 선택지에 배정한다. 새 문제는 입력 행 순서대로 1, 2, 3, 4가 부여된다. 기존 선택지 ID 누락·중복 및 잘못된 기존 순서는 폼 오류로 거부한다.
+- 같은 편집 화면에서 선택지를 삭제하고 새 행에 교체 내용을 입력할 수 있다. 기존 4개를 전부 교체할 수 있도록 최대 입력 행은 8개로 두되, 삭제 예정 행과 빈 행을 제외한 저장 대상은 정확히 4개여야 한다. Django 기본 Formset 저장은 기존 행 처리(삭제 포함) 후 새 행을 저장하므로 비워진 순서를 중복 없이 재사용한다. 관리자 기본 트랜잭션 안에서 처리되며 별도의 저장 순서 변경 코드는 추가하지 않았다.
+- SINGLE 정답 정확히 1개, MULTIPLE 정답 2개 이상 검증을 유지한다. 오류 시 HTTP 200으로 폼 오류를 표시하고 저장하지 않는다.
+- `questions/tests.py`: 기존 모델 테스트 7개는 유지했다. 관리자 수동 순서 검증 테스트 2개는 새 정책에 맞춰 전달된 중복·범위 밖 position 무시 검증으로 변경했다. 기본 저장 테스트는 position 없이 자동 할당을 확인한다. 편집 필드 제외, 순서 교환 요청 무시, 일부·전체 선택지 교체, 잘못된 교체의 원본 보존, 중복 기존 ID, 관리 폼 누락 테스트 7개를 추가했다.
+- `.\.venv\Scripts\python.exe manage.py test` → `Ran 29 tests`, `OK`. 테스트 전용 DB에서 실행했다.
+- `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- `.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` → `No changes detected`.
+- `git diff --check` → 통과. PROGRESS.md의 LF→CRLF 변환 안내만 있으며 공백 오류는 없다.
+- 수정 파일: `questions/admin.py`(순서 자동 관리), `questions/tests.py`(관련 회귀 검증), `PROGRESS.md`(기록 갱신). Choice 모델의 position 및 UniqueConstraint와 DB 스키마는 변경하지 않았다.
+- 수동 브라우저 확인은 미실행이다. `/admin/`에서 문제 추가 시 선택지 내용·정답만 입력하고 저장 후 순서 1~4를 확인한다. 수정 시 교체 대상의 삭제를 체크하고 빈 추가 행을 채운 뒤 저장하여 나머지 순서 유지 및 빈 순서 재사용을 확인한다. 교체 없이 삭제만 하면 4개 제한 오류가 표시된다.
+- 이번 자동화 검사에서 오류 없음. Git commit/push 및 다음 Step은 진행하지 않았다.
+
+### Step 14 개선: 문제 유형별 선택지 개수 (2026-11-17)
+
+- 확인 주체: Codex. 작업 전 `AGENTS.md`, `PROGRESS.md`, 관리자·모델·테스트 및 초기 마이그레이션을 확인했다. 이전 Step 14의 미커밋 변경 사항을 유지했다.
+- `questions/admin.py`: SINGLE 선택지 정확히 4개/정답 정확히 1개, MULTIPLE 선택지 정확히 5개/정답 2개 이상으로 검증한다. 유형 변경 시에도 동일한 검증을 실행한다. 선택지 수 오류는 유형 및 필요한 개수를 한국어로 표시한다.
+- position은 관리자 입력에서 계속 제외한다. 기존 선택지 순서는 유지하고, 새 선택지는 해당 유형의 미사용 순서(SINGLE 1~4, MULTIPLE 1~5)를 오름차순으로 배정한다. 삭제한 순서를 새 행이 재사용하며 기존 행 삭제 후 새 행 저장 방식은 유지한다. 최대 입력 행은 10개로 늘려 MULTIPLE의 5개 전체 교체도 허용한다. 기본 빈 행은 4개이며 MULTIPLE 등록 시 추가 링크로 5번째 행을 입력한다.
+- MULTIPLE→SINGLE 변경 시 순서 5인 선택지를 삭제해야 한다. 5번을 남기고 다른 선택지를 삭제하면 순서 범위 오류와 조치 방법을 표시한다. 기존 순서를 임의 재배치하지 않는다.
+- `questions/models.py`: Choice.position의 MaxValueValidator만 4→5로 확장했다. 필드 자료형과 기존 UniqueConstraint는 유지했다. 유형별 범위 및 개수 규칙은 관리자 Formset에서 검증한다.
+- `questions/migrations/0002_alter_choice_position.py` 생성 후 내용 확인: position validator를 변경하는 AlterField 1개이며 데이터 삭제·변환·제약 삭제는 없다. `sqlmigrate questions 0002` 결과 SQLite SQL은 `(no-op)`으로 실제 테이블/데이터 변경이 없다. 실제 로컬 DB에는 migrate를 실행하지 않았다. 테스트 DB에서는 Django 테스트 러너가 새 마이그레이션을 적용해 전체 테스트를 실행했다.
+- 기존 데이터는 삭제·일괄 변환하지 않았다. 기존 선택지 4개인 MULTIPLE도 보존된다. 관리자 재저장 시에는 5번째 선택지를 추가하고 정답을 2개 이상 지정해야 한다.
+- `questions/tests.py`: 모델 순서 허용 범위를 1~5/거부 범위를 0·6으로 갱신했다. 기존 관리자 테스트를 새 규칙에 맞게 수정하고, MULTIPLE 선택지 개수 거부, 양방향 유형 변경의 개수·정답 재검증 및 성공 저장, SINGLE에 5번 순서 유지 거부, MULTIPLE 일부·전체 교체, 기존 4개 MULTIPLE 보존 및 보완 테스트 8개를 추가했다.
+- `.\.venv\Scripts\python.exe manage.py test` → `Ran 37 tests`, `OK`.
+- `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- `.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` → `No changes detected` (생성된 0002 외 추가 변경 없음).
+- `.\.venv\Scripts\python.exe manage.py sqlmigrate questions 0002` → position AlterField는 SQLite에서 no-op.
+- `git diff --check` → 통과. PROGRESS.md의 LF→CRLF 안내만 있으며 공백 오류는 없다.
+- 변경 파일: `questions/admin.py`(유형별 검증·자동 순서), `questions/models.py`(최대 순서 확장), `questions/tests.py`(회귀 검증), `questions/migrations/0002_alter_choice_position.py`(validator 변경 기록), `PROGRESS.md`(진행 기록).
+- 수동 브라우저 확인은 미실행이다. 필요 시 `.\.venv\Scripts\python.exe manage.py migrate`로 생성된 마이그레이션을 적용하고 `runserver` 후 `/admin/`에 접속한다. SINGLE 4개/정답 1개, MULTIPLE 5개/정답 2개 이상으로 저장하고 순서 자동 할당을 확인한다. 틀린 개수·정답 수, 양방향 유형 변경, 삭제·교체를 확인한다. SINGLE→MULTIPLE은 5번째 선택지를 추가하고, 반대 변경은 5번을 삭제한 뒤 정답을 1개로 조정한다.
+- 이번 자동화 검사에서 오류 없음. Git commit/push 및 다음 Step은 진행하지 않았다.
+
+### Step 14 개선: 수정 화면의 기본 빈 선택지 행 제거 (2026-11-17)
+
+- 확인 주체: Codex. 작업 전 `AGENTS.md`, `PROGRESS.md`, 관리자 및 관련 테스트를 확인하고 이전 작업의 미커밋 변경 사항을 유지했다.
+- `questions/admin.py`: `ChoiceInline.get_extra()`에서 새 문제는 기존 `extra=4`를 유지하고 기존 문제는 0을 반환하도록 했다. 기존 문제의 수정 화면은 저장된 선택지만 기본 표시한다.
+- 기본 선택지 추가 기능 및 숨겨진 추가 행 원형은 유지한다. 필요 시 관리자 기본 추가 링크로 새 행을 추가할 수 있다. 신규 행 X 버튼, 기존 행 DELETE 체크박스 및 Django 기본 삭제 동작은 변경하지 않았다.
+- SINGLE 선택지 4개/정답 1개, MULTIPLE 선택지 5개/정답 2개 이상, 자동 순서 할당, 기존 순서 고정, 삭제·교체 검증과 저장 로직은 그대로 유지한다. 모델·스키마·마이그레이션 변경이나 JavaScript/CSS/템플릿 추가는 없다.
+- `questions/tests.py`: SINGLE/MULTIPLE 수정 화면에서 저장된 선택지만 표시되고 extra_forms가 0개인지 검증하는 테스트와, 추가 권한·최대 행 여유·기본 추가 행 원형·Django inline 스크립트가 유지되는지 확인하는 테스트를 추가했다. 실제 브라우저 클릭 확인은 미실행이다. 기존 신규 등록·저장 및 추가 행 POST를 통한 삭제·교체 테스트도 함께 통과했다.
+- `.\.venv\Scripts\python.exe manage.py test` → `Ran 39 tests`, `OK`.
+- `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- `.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` → `No changes detected`. 이전 작업의 0002 외 새 마이그레이션 없음.
+- `git diff --check` → 통과. PROGRESS.md의 LF→CRLF 안내만 있으며 공백 오류는 없다.
+- 이번 요청의 수정 파일: `questions/admin.py`(화면별 기본 추가 행 수), `questions/tests.py`(화면 회귀 검증), `PROGRESS.md`(작업·테스트 기록).
+- 오류 없음. 실제 DB 변경, Git commit/push 및 다음 Step은 진행하지 않았다.
+
+### Step 14 개선: 문제 유형 최초 등록 후 변경 제한 (2026-11-17)
+
+- 확인 주체: Codex. 작업 전 `AGENTS.md`, `PROGRESS.md`, 관리자 코드와 관련 테스트를 확인했다. 이전 작업의 미커밋 변경 사항을 유지했다.
+- `questions/admin.py`: `QuestionAdmin.get_readonly_fields()`에서 기존 객체가 있는 경우에만 `question_type`을 읽기 전용으로 지정한다. 신규 등록 시에는 기존 유형 선택을 유지한다. Django Admin이 수정 ModelForm에서 해당 필드를 제외하므로 임의의 POST 유형 값(반대 유형 및 유효하지 않은 값 포함)은 무시되고 DB의 기존 유형이 유지된다.
+- 문제 본문·해설·선택지 내용·정답 여부 편집은 유지한다. SINGLE 선택지 4개/정답 1개, MULTIPLE 선택지 5개/정답 2개 이상은 기존 DB 유형으로 검증한다. position 자동 할당·기존 순서 고정·중복 방지 및 선택지 삭제·교체 로직과 기본 삭제 UI는 변경하지 않았다.
+- `questions/tests.py`: 기존 유형 변경 허용 관련 테스트 5개를 새 정책에 맞춰 변경했다. 양방향 유형 변경 POST 무시, 전달된 유형으로 선택지 수·정답 검증 우회 불가를 확인한다. 추가로 등록/수정 화면의 유형 편집 여부, question_type 없이 본문·해설·선택지·정답 수정, 유효하지 않은 유형 POST 무시 테스트 3개를 추가했다. 기존 등록·저장, 순서, 삭제·교체 및 모델 테스트를 함께 실행했다.
+- `.\.venv\Scripts\python.exe manage.py test` → `Ran 42 tests`, `OK`.
+- `.\.venv\Scripts\python.exe manage.py check` → `System check identified no issues (0 silenced).`
+- `.\.venv\Scripts\python.exe manage.py makemigrations --check --dry-run` → `No changes detected`.
+- `git diff --check` → 통과. PROGRESS.md의 LF→CRLF 안내만 있으며 공백 오류는 없다.
+- 이번 요청의 수정 파일: `questions/admin.py`(유형 읽기 전용 처리), `questions/tests.py`(변경 제한 회귀 검증), `PROGRESS.md`(기록 갱신). 모델·DB 스키마·마이그레이션 변경 없음. 이 제한은 Django Admin에 적용하며 ORM 직접 수정까지 차단하지는 않는다.
+- 수동 브라우저 확인은 미실행이다. `/admin/`의 신규 문제에서 유형 선택이 가능하고, 저장 후 수정 화면에서는 유형이 텍스트로만 표시되는지 확인한다. 본문·해설·선택지·정답 수정은 가능하다. 앞선 유형별 개수 작업 기록의 양방향 유형 변경 수동 절차는 이 변경으로 대체된다.
+- 오류 없음. Git commit/push 및 다음 Step은 진행하지 않았다.
+
 ## 7. 오류 및 참고 사항
 
 - 사용자 보고: PowerShell 실행 정책으로 `Activate.ps1` 실행이 차단됐으나 Process 범위 Bypass 적용 후 활성화에 성공했다.
 - 사용자 보고: VS Code Shell Integration 경고가 있었지만 기본 터미널 명령어 실행은 정상이었다.
 - Django 프로젝트 및 `questions` 앱 기본 파일, `Question`, `Choice` 모델과 초기 마이그레이션 파일 생성 완료. 사용자 확인으로 SQLite 마이그레이션 및 두 테이블 조회 성공을 기록했다. Codex는 이번 작업에서 `migrate`를 실행하지 않았다.
-- 선택지 정확히 4개, SINGLE 정답 1개, MULTIPLE 정답 2개 이상이라는 규칙은 이번 모델만으로 완벽히 강제되지 않는다. 추후 문제 생성·검증 로직에서 보장해야 한다.
+- SINGLE 선택지 4개/정답 1개, MULTIPLE 선택지 5개/정답 2개 이상 및 유형별 순서 범위는 Step 14 관리자 Formset에서 보장한다. 모델 자체의 `save()`나 ORM 직접 저장에는 이 검증이 자동 적용되지 않는다.
 - `DJANGO_SECRET_KEY` 환경변수를 설정하지 않으면 실행마다 개발용 임시 키가 생성된다. 재시작 후 기존 세션 등이 무효화될 수 있으며, 운영 환경에서는 별도의 고정된 비밀정보를 환경변수로 제공해야 한다.
 - 기록된 기존 완료 항목과 개발 환경 확인 결과는 사용자 확인을 기반으로 한다. Codex가 직접 재검증하지 않은 사항을 직접 검증했다고 표현하지 않는다.
 

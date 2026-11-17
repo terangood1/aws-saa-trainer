@@ -29,7 +29,7 @@ class Choice(models.Model):
     text = models.TextField()
     is_correct = models.BooleanField(default=False)
     position = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(1), MaxValueValidator(4)],
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
     )
 
     class Meta:
