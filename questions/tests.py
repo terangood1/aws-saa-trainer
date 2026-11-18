@@ -1,9 +1,12 @@
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 
 from .admin import QuestionAdmin
 from .models import Choice, Question
@@ -471,3 +474,63 @@ class QuestionAdminTests(TestCase):
         response = self.client.post(reverse('admin:questions_question_change', args=[question.pk]), data)
         self.assertRedirects(response, self.list_url)
         self.assertEqual(question.choices.count(), 5)
+
+
+class QuestionListTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.single = Question.objects.create(
+            text='EC2 인스턴스의 가용성을 높이는 방법은 무엇입니까?',
+            explanation='목록에 표시되면 안 되는 해설',
+        )
+        cls.multiple = Question.objects.create(
+            text='S3 데이터 보호를 위해 사용할 수 있는 기능을 고르세요.',
+            question_type=Question.QuestionType.MULTIPLE,
+        )
+        Choice.objects.create(
+            question=cls.single,
+            text='목록에 표시되면 안 되는 정답 선택지',
+            is_correct=True,
+            position=1,
+        )
+
+    def test_public_list_url(self):
+        self.assertEqual(reverse('questions:list'), '/questions/')
+        response = self.client.get('/questions/')
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'questions/question_list.html')
+
+    def test_saved_question_text_and_date_are_displayed(self):
+        response = self.client.get(reverse('questions:list'))
+        self.assertContains(response, self.single.text)
+        self.assertContains(response, self.multiple.text)
+        created = timezone.localtime(self.single.created_at)
+        self.assertContains(response, f'{created.year}년 {created.month}월 {created.day}일')
+
+    def test_questions_are_displayed_newest_first(self):
+        Question.objects.filter(pk=self.multiple.pk).update(
+            created_at=self.single.created_at - timedelta(days=1),
+        )
+        response = self.client.get(reverse('questions:list'))
+        self.assertContains(response, self.single.text)
+        self.assertContains(response, self.multiple.text)
+        self.assertLess(
+            response.content.index(self.single.text.encode()),
+            response.content.index(self.multiple.text.encode()),
+        )
+
+    def test_question_types_are_displayed_in_korean(self):
+        response = self.client.get(reverse('questions:list'))
+        self.assertContains(response, '단일 정답')
+        self.assertContains(response, '복수 정답')
+
+    def test_empty_list_displays_message(self):
+        Question.objects.all().delete()
+        response = self.client.get(reverse('questions:list'))
+        self.assertContains(response, '등록된 문제가 없습니다.')
+
+    def test_answers_and_explanations_are_not_exposed(self):
+        response = self.client.get(reverse('questions:list'))
+        self.assertNotContains(response, self.single.explanation)
+        self.assertNotContains(response, self.single.choices.get().text)
+        self.assertNotContains(response, 'is_correct')

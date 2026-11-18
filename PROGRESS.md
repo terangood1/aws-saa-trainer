@@ -47,17 +47,18 @@ Codex가 직접 수행한 작업:
 - [x] 모델 작성 후 `manage.py check` 및 `makemigrations --check --dry-run` 통과
 - [x] `Question`, `Choice` 모델의 Django `TestCase` 기반 자동화 테스트 7개 작성 및 통과
 - [x] Step 14: Django Admin 문제·선택지 관리 및 관리자 입력 검증 구현, 전체 테스트 22개 통과
+- [x] Step 15: 공개 문제 목록 구현, 전체 테스트 48개 통과
 
 ## 4. 현재 작업
 
-- Step 14 문제 유형 변경 제한 완료: 유형은 최초 등록 시 선택, 기존 문제 수정 시 읽기 전용 및 임의 POST 값 무시. 전체 테스트 42개와 필수 검사 통과. 이전 0002 마이그레이션의 실제 DB 적용은 이번에도 미실행. 다음 사용자 요청 대기.
+- Step 15 완료. 기존 SQLite를 사용하는 공개 문제 목록 `/questions/`와 공통 레이아웃 구현. 다음 사용자 요청 대기.
 
 ## 5. 다음 작업
 
 아래 항목은 예정된 작업이며, 사용자 요청에 따라 해당 단계만 진행한다.
 
 - [x] 관리자 문제 생성·검증 로직 구현: SINGLE 선택지 4개/정답 1개, MULTIPLE 선택지 5개/정답 2개 이상 보장
-- [ ] 문제 풀이 기능 개발
+- [ ] Step 16: 문제 풀이 화면 개발
 
 ## 6. 테스트 및 확인 결과
 
@@ -232,6 +233,16 @@ Codex가 직접 수행한 작업:
 - 이번 요청의 수정 파일: `questions/admin.py`(유형 읽기 전용 처리), `questions/tests.py`(변경 제한 회귀 검증), `PROGRESS.md`(기록 갱신). 모델·DB 스키마·마이그레이션 변경 없음. 이 제한은 Django Admin에 적용하며 ORM 직접 수정까지 차단하지는 않는다.
 - 수동 브라우저 확인은 미실행이다. `/admin/`의 신규 문제에서 유형 선택이 가능하고, 저장 후 수정 화면에서는 유형이 텍스트로만 표시되는지 확인한다. 본문·해설·선택지·정답 수정은 가능하다. 앞선 유형별 개수 작업 기록의 양방향 유형 변경 수동 절차는 이 변경으로 대체된다.
 - 오류 없음. Git commit/push 및 다음 Step은 진행하지 않았다.
+
+### Step 15: 공개 문제 목록 (2026-11-18)
+
+- `config/urls.py`와 신규 `questions/urls.py`에서 `/questions/`를 `questions:list`로 연결했다. `questions/views.py`의 `question_list`는 본문·유형·생성 시각을 ORM으로 조회해 생성 시각 내림차순으로 정렬한다. 같은 시각이면 ID 내림차순을 적용한다.
+- 신규 `questions/templates/questions/base.html`은 네이비 상단 메뉴와 반응형 Bootstrap 레이아웃을 제공한다. 신규 `questions/templates/questions/question_list.html`은 흰색 카드에 본문(최대 300자), 한글 유형, 생성일을 표시하고 빈 목록에 안내 문구를 표시한다.
+- `questions/tests.py`에 접근, 저장 데이터와 생성일 표시, 최신순, 유형 표시, 빈 목록, 정답·해설 비노출을 검증하는 TestCase 6개를 추가했다. `PROGRESS.md`에 작업 및 검증 결과를 기록했다.
+- 가상환경 Python으로 `manage.py check` 통과, `manage.py test` 전체 48개 통과, `manage.py makemigrations --check --dry-run`에서 `No changes detected` 확인. `git diff --check` 통과.
+- `manage.py showmigrations questions`에서 기존 0001과 0002가 적용된 상태를 확인했다. 개발 SQLite를 사용한 Django 클라이언트 요청은 HTTP 200을 반환했고 저장된 문제는 6개였다.
+- 브라우저 수동 확인은 미실행. 프로젝트 루트에서 `.\.venv\Scripts\python.exe manage.py runserver`를 실행한 뒤 `http://127.0.0.1:8000/questions/`를 데스크톱 및 모바일 너비로 열어 메뉴, 카드, 줄바꿈을 확인한다. Bootstrap CSS는 jsDelivr에서 로드한다.
+- 다음 작업은 Step 16 문제 풀이 화면이다. 사용자 요청 후 진행한다.
 
 ## 7. 오류 및 참고 사항
 
