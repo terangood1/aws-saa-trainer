@@ -16,7 +16,8 @@
                         {{ question.created_at|date:'Y년 n월 j일' }}
                     </time>
                 </div>
-                <p class="question-text mb-0">{{ question.text|truncatechars:300 }}</p>
+                <p class="question-text mb-0"><a class="stretched-link text-reset text-decoration-none"
+                    href="{% url 'questions:detail' question.pk %}">{{ question.text|truncatechars:300 }}</a></p>
             </div>
         </li>
     {% empty %}

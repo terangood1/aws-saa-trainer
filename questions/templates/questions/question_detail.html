@@ -1,0 +1,52 @@
+{% extends "questions/base.html" %}
+{% load static %}
+
+{% block title %}문제 풀이 | AWS SAA Trainer{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'questions/quiz.css' %}">
+<script src="{% static 'questions/quiz.js' %}" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="quiz-progress d-flex flex-wrap align-items-center gap-2 gap-sm-3 mb-4">
+    <label for="quiz-progress" class="fw-semibold">문제 진행도</label>
+    <progress id="quiz-progress" value="{{ question_number }}" max="{{ question_total }}"></progress>
+    <span class="fw-semibold">{{ question_number }} / {{ question_total }}</span>
+</div>
+
+<form id="quiz-form" method="post" data-required-count="{{ required_count }}">
+    {% csrf_token %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-body p-3 p-sm-4">
+            <h1 id="question-text" class="h5 question-text fw-bold mb-3">{{ question_text }}</h1>
+            <fieldset aria-labelledby="question-text" aria-describedby="answer-instructions{% if form.errors %} answer-errors{% endif %}">
+                <legend id="answer-instructions" class="fs-6 text-body-secondary mb-3">({{ required_count }}개 선택)</legend>
+                <div class="d-grid gap-2">
+                    {% for choice in choices %}
+                        {% with choice_id=choice.id|stringformat:"s" %}
+                            <label class="quiz-choice">
+                                <input type="{% if multiple %}checkbox{% else %}radio{% endif %}"
+                                       name="answers" value="{{ choice.id }}"
+                                       {% if not multiple %}required{% endif %}
+                                       {% if choice_id in form.answers.value %}checked{% endif %}>
+                                <span class="question-text">{{ choice.text }}</span>
+                            </label>
+                        {% endwith %}
+                    {% endfor %}
+                </div>
+            </fieldset>
+            {% if form.errors %}
+                <div id="answer-errors" class="text-danger mt-3" role="alert">{{ form.answers.errors }}</div>
+            {% endif %}
+            {% if selection_valid %}
+                <p class="text-body-secondary mt-3 mb-0" role="status">답안 선택을 확인했습니다.</p>
+            {% endif %}
+        </div>
+    </div>
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+        <a class="btn btn-outline-secondary px-3" href="{% url 'questions:list' %}">문제 목록</a>
+        <button class="btn btn-primary px-4" type="submit" disabled>정답 확인</button>
+    </div>
+</form>
+{% endblock %}

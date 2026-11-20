@@ -534,3 +534,114 @@ class QuestionListTests(TestCase):
         self.assertNotContains(response, self.single.explanation)
         self.assertNotContains(response, self.single.choices.get().text)
         self.assertNotContains(response, 'is_correct')
+
+
+class QuestionDetailTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.single = Question.objects.create(text='단일 문제 본문', explanation='비공개 단일 해설')
+        cls.multiple = Question.objects.create(
+            text='복수 문제 본문',
+            explanation='비공개 복수 해설',
+            question_type=Question.QuestionType.MULTIPLE,
+        )
+        Question.objects.filter(pk=cls.multiple.pk).update(created_at=cls.single.created_at)
+        for question, positions, correct_count in (
+            (cls.single, (4, 2, 1, 3), 1),
+            (cls.multiple, (5, 3, 2, 1, 4), 2),
+        ):
+            for position in positions:
+                Choice.objects.create(
+                    question=question, position=position,
+                    text=f'{question.text} 선택지 {position}', is_correct=position <= correct_count,
+                )
+        cls.single_url = reverse('questions:detail', args=[cls.single.pk])
+        cls.multiple_url = reverse('questions:detail', args=[cls.multiple.pk])
+
+    def test_detail_shows_only_requested_question_and_progress(self):
+        self.assertEqual(self.single_url, f'/questions/{self.single.pk}/')
+        response = self.client.get(self.single_url)
+        self.assertTemplateUsed(response, 'questions/question_detail.html')
+        self.assertContains(response, f'<h1 id="question-text" class="h5 question-text fw-bold mb-3">{self.single.text}</h1>', html=True)
+        self.assertNotContains(response, self.multiple.text)
+        self.assertContains(response, '2 / 2')
+        self.assertContains(self.client.get(self.multiple_url), '1 / 2')
+
+    def test_unknown_question_returns_404(self):
+        self.assertEqual(self.client.get('/questions/999999/').status_code, 404)
+
+    def test_single_renders_four_radios_in_position_order(self):
+        response = self.client.get(self.single_url)
+        self.assertContains(response, 'type="radio"', count=4)
+        self.assertContains(response, '(1개 선택)')
+        self.assertNotContains(response, 'type="checkbox"')
+        ordered = list(self.single.choices.order_by('position').values_list('text', flat=True))
+        html = response.content.decode()
+        self.assertEqual(sorted(ordered, key=html.index), ordered)
+
+    def test_multiple_renders_five_checkboxes_and_uses_current_correct_count(self):
+        for correct_count in (2, 3):
+            with self.subTest(correct_count=correct_count):
+                self.multiple.choices.filter(position=3).update(is_correct=correct_count == 3)
+                response = self.client.get(self.multiple_url)
+                self.assertContains(response, 'type="checkbox"', count=5)
+                self.assertNotContains(response, 'type="radio"')
+                self.assertContains(response, f'({correct_count}개 선택)')
+
+    def test_detail_omits_type_badges_explanations_and_correctness(self):
+        for url, question in ((self.single_url, self.single), (self.multiple_url, self.multiple)):
+            response = self.client.get(url)
+            for hidden in (question.explanation, 'is_correct', 'SINGLE', 'MULTIPLE', 'badge', 'checked'):
+                self.assertNotContains(response, hidden)
+            self.assertEqual(
+                response.context['choices'],
+                list(question.choices.order_by('position').values('id', 'text')),
+            )
+            self.assertNotIn('question', response.context)
+
+    def test_list_cards_link_to_the_detail_pages(self):
+        response = self.client.get(reverse('questions:list'))
+        for url in (self.single_url, self.multiple_url):
+            self.assertContains(response, f'href="{url}"')
+        self.assertContains(response, 'stretched-link', count=2)
+
+    def test_responsive_structure_and_same_page_submission(self):
+        response = self.client.get(self.single_url)
+        self.assertContains(response, 'name="viewport"')
+        self.assertContains(response, 'p-3 p-sm-4')
+        self.assertContains(response, 'd-flex flex-wrap')
+        self.assertContains(response, 'questions/quiz.css')
+        self.assertContains(response, 'questions/quiz.js')
+        self.assertContains(response, '<form id="quiz-form" method="post" data-required-count="1">')
+        self.assertContains(response, 'type="submit" disabled')
+
+        # Any valid selection is accepted, even an incorrect answer.
+        wrong_choice = self.single.choices.get(position=4)
+        response = self.client.post(self.single_url, {'answers': [wrong_choice.pk]})
+        self.assertContains(response, '답안 선택을 확인했습니다.')
+        self.assertNotIn('Location', response)
+        self.assertNotContains(response, self.single.explanation)
+
+    def test_invalid_submissions_are_rejected(self):
+        first, second, third = self.multiple.choices.order_by('position')[:3]
+        foreign = self.single.choices.get(position=1)
+        for url, answers in (
+            (self.single_url, []),
+            (self.single_url, [first.pk, foreign.pk]),
+            (self.multiple_url, [first.pk]),
+            (self.multiple_url, [first.pk, first.pk]),
+            (self.multiple_url, [first.pk, foreign.pk]),
+            (self.multiple_url, [first.pk, 'invalid']),
+            (self.multiple_url, [first.pk, second.pk, third.pk]),
+        ):
+            with self.subTest(url=url, answers=answers):
+                response = self.client.post(url, {'answers': answers})
+                self.assertContains(response, 'role="alert"', status_code=400)
+
+    def test_post_requires_csrf_token(self):
+        self.client.handler.enforce_csrf_checks = True
+        choices = list(self.multiple.choices.order_by('-position').values_list('pk', flat=True)[:2])
+        self.assertEqual(self.client.post(self.multiple_url, {'answers': choices}).status_code, 403)
+        token = self.client.get(self.multiple_url).cookies['csrftoken'].value
+        response = self.client.post(self.multiple_url, {'answers': choices, 'csrfmiddlewaretoken': token})
+        self.assertEqual(response.status_code, 200)
