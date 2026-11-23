@@ -43,6 +43,12 @@
     min-width: 0;
 }
 
+.quiz-result-choice {
+    padding: .75rem 1rem;
+    border: 1px solid #adb5bd;
+    border-radius: .5rem;
+}
+
 @media (forced-colors: active) {
     .quiz-choice input {
         appearance: auto;

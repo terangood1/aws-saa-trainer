@@ -615,13 +615,6 @@ class QuestionDetailTests(TestCase):
         self.assertContains(response, '<form id="quiz-form" method="post" data-required-count="1">')
         self.assertContains(response, 'type="submit" disabled')
 
-        # Any valid selection is accepted, even an incorrect answer.
-        wrong_choice = self.single.choices.get(position=4)
-        response = self.client.post(self.single_url, {'answers': [wrong_choice.pk]})
-        self.assertContains(response, '답안 선택을 확인했습니다.')
-        self.assertNotIn('Location', response)
-        self.assertNotContains(response, self.single.explanation)
-
     def test_invalid_submissions_are_rejected(self):
         first, second, third = self.multiple.choices.order_by('position')[:3]
         foreign = self.single.choices.get(position=1)
@@ -637,6 +630,10 @@ class QuestionDetailTests(TestCase):
             with self.subTest(url=url, answers=answers):
                 response = self.client.post(url, {'answers': answers})
                 self.assertContains(response, 'role="alert"', status_code=400)
+                self.assertTemplateUsed(response, 'questions/question_detail.html')
+                self.assertTemplateNotUsed(response, 'questions/question_result.html')
+                self.assertNotContains(response, '실제 정답', status_code=400)
+                self.assertNotContains(response, self.multiple.explanation, status_code=400)
 
     def test_post_requires_csrf_token(self):
         self.client.handler.enforce_csrf_checks = True
@@ -645,3 +642,94 @@ class QuestionDetailTests(TestCase):
         token = self.client.get(self.multiple_url).cookies['csrftoken'].value
         response = self.client.post(self.multiple_url, {'answers': choices, 'csrfmiddlewaretoken': token})
         self.assertEqual(response.status_code, 200)
+
+    def test_single_correct_answer_renders_read_only_result_at_detail_url(self):
+        correct = self.single.choices.get(position=1)
+        response = self.client.post(self.single_url, {'answers': [correct.pk]})
+        self.assertTemplateUsed(response, 'questions/question_result.html')
+        self.assertNotIn('Location', response)
+        self.assertIs(response.context['is_correct'], True)
+        self.assertContains(response, '정답입니다')
+        self.assertContains(response, self.single.text)
+        self.assertContains(response, self.single.explanation)
+        self.assertContains(response, '<span class="badge text-bg-secondary">단일 정답</span>', html=True)
+        self.assertNotContains(response, '<form')
+        self.assertNotContains(response, '<input')
+        self.assertNotContains(response, '다시 풀기')
+        self.assertNotContains(response, 'quiz.js')
+
+    def test_single_wrong_answer_is_marked_incorrect(self):
+        wrong = self.single.choices.get(position=4)
+        response = self.client.post(self.single_url, {'answers': [wrong.pk]})
+        self.assertIs(response.context['is_correct'], False)
+        self.assertContains(response, '오답입니다')
+
+    def test_multiple_correct_answers_can_be_submitted_in_reverse_order(self):
+        correct_ids = list(
+            self.multiple.choices.filter(is_correct=True).order_by('-position')
+            .values_list('pk', flat=True)
+        )
+        response = self.client.post(self.multiple_url, {'answers': correct_ids})
+        self.assertIs(response.context['is_correct'], True)
+        self.assertContains(response, '정답입니다')
+        self.assertContains(response, '<span class="badge text-bg-secondary">복수 정답</span>', html=True)
+
+    def test_multiple_mixed_answers_show_all_choice_states_in_position_order(self):
+        ordered = list(self.multiple.choices.order_by('position'))
+        response = self.client.post(self.multiple_url, {'answers': [ordered[2].pk, ordered[0].pk]})
+        self.assertIs(response.context['is_correct'], False)
+        self.assertContains(response, '오답입니다')
+        html = response.content.decode()
+        texts = [choice.text for choice in ordered]
+        self.assertEqual(sorted(texts, key=html.index), texts)
+        for choice, style, selected, correct in zip(
+            ordered,
+            ('border-success bg-success-subtle', 'border-success bg-success-subtle',
+             'border-danger bg-danger-subtle', '', ''),
+            (True, False, True, False, False),
+            (True, True, False, False, False),
+        ):
+            with self.subTest(position=choice.position):
+                classes = f'quiz-result-choice {style}' if style else 'quiz-result-choice'
+                selected_badge = '<span class="badge text-bg-secondary">내가 선택한 답</span>' if selected else ''
+                correct_badge = '<span class="badge text-bg-success">실제 정답</span>' if correct else ''
+                self.assertContains(response, (
+                    f'<li class="{classes}"><span class="question-text d-block">{choice.text}</span>'
+                    f'{selected_badge}{correct_badge}</li>'
+                ), html=True)
+
+    def test_invalid_multiple_answers_show_validation_errors_without_grading(self):
+        correct = self.multiple.choices.get(position=1)
+        missing_id = self.multiple.choices.order_by('-pk').first().pk + 1
+        for answers, message in (
+            ([correct.pk], '서로 다른 답안을 2개 선택해 주세요.'),
+            ([correct.pk, correct.pk], '서로 다른 답안을 2개 선택해 주세요.'),
+            ([correct.pk, missing_id], '이 문제에 있는 선택지만 선택해 주세요.'),
+        ):
+            with self.subTest(answers=answers):
+                response = self.client.post(self.multiple_url, {'answers': answers})
+                self.assertTemplateUsed(response, 'questions/question_detail.html')
+                self.assertNotIn('is_correct', response.context)
+                self.assertContains(response, message, status_code=400)
+
+    def test_next_question_link_uses_date_and_id_order(self):
+        older = Question.objects.create(text='더 오래된 문제')
+        Question.objects.filter(pk=older.pk).update(created_at=self.single.created_at - timedelta(days=1))
+        older_url = reverse('questions:detail', args=[older.pk])
+        for question, url, next_url in (
+            (self.multiple, self.multiple_url, self.single_url),
+            (self.single, self.single_url, older_url),
+        ):
+            with self.subTest(url=url):
+                correct_ids = list(question.choices.filter(is_correct=True).values_list('pk', flat=True))
+                response = self.client.post(url, {'answers': correct_ids})
+                self.assertContains(response, f'<a class="btn btn-primary px-4" href="{next_url}">다음 문제</a>', html=True)
+                self.assertTemplateUsed(self.client.get(next_url), 'questions/question_detail.html')
+
+    def test_last_question_links_back_to_list(self):
+        correct = self.single.choices.get(position=1)
+        response = self.client.post(self.single_url, {'answers': [correct.pk]})
+        list_url = reverse('questions:list')
+        self.assertContains(response, f'<a class="btn btn-primary px-4" href="{list_url}">문제 목록으로 돌아가기</a>', html=True)
+        self.assertNotContains(response, '다음 문제')
+        self.assertTemplateUsed(self.client.get(list_url), 'questions/question_list.html')
